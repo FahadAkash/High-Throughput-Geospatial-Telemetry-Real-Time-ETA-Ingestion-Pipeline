@@ -1,0 +1,13 @@
+name: "dhaka_rush_hour"
+city: "dhaka"
+driver_count: 500
+ping_interval_seconds: 3
+duration_seconds: 10
+rider_request_rate_per_sec: 30
+seed: 42
+bounds:
+  min_lat: 23.7000
+  max_lat: 23.8500
+  min_lng: 90.3500
+  max_lng: 90.4500
+

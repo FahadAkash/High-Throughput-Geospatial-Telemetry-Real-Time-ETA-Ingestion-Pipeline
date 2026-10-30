@@ -1,0 +1,30 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.html
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# IDE and Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude local overrides and stop-gate state
+.claude/.stop-gate-state
+.claude/settings.local.json
+CLAUDE.local.md
+
