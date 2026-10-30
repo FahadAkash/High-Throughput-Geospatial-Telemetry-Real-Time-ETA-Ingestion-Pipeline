@@ -23,6 +23,7 @@ type Config struct {
 	KafkaBrokers []string
 	KafkaTopic   string
 	KafkaGroupID string
+	KafkaEnabled bool
 
 	// PostgreSQL
 	PostgresURL string
@@ -83,6 +84,7 @@ func Load() (*Config, error) {
 		KafkaBrokers: kafkaBrokers,
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "telemetry.dhaka"),
 		KafkaGroupID: getEnv("KAFKA_GROUP_ID", "telemetry-consumer-group"),
+		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
 
 		PostgresURL: pgURL,
 		OSRMURL:     getEnv("OSRM_URL", "http://127.0.0.1:5000"),
@@ -128,8 +130,8 @@ func (c *Config) validate() error {
 	if c.RedisURL == "" {
 		return fmt.Errorf("REDIS_URL must not be empty")
 	}
-	if len(c.KafkaBrokers) == 0 {
-		return fmt.Errorf("KAFKA_BROKERS must not be empty")
+	if c.KafkaEnabled && len(c.KafkaBrokers) == 0 {
+		return fmt.Errorf("KAFKA_BROKERS must not be empty when KAFKA_ENABLED=true")
 	}
 	if c.StaleWindow <= 0 {
 		return fmt.Errorf("STALE_WINDOW must be positive")
@@ -206,6 +208,15 @@ func getEnvSlice(key string, defaultVal []string) []string {
 		}
 		if len(res) > 0 {
 			return res
+		}
+	}
+	return defaultVal
+}
+
+func getEnvBool(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
 		}
 	}
 	return defaultVal

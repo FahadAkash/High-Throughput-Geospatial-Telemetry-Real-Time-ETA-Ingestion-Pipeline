@@ -52,11 +52,17 @@ func main() {
 	redisClient := redisStore.NewClient(rdb)
 
 	// 2. Kafka async publisher
-	kafkaProd, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.KafkaTopic)
-	if err != nil {
-		slog.Warn("kafka producer failed to initialize; telemetry running in Redis-only mode", "error", err)
+	var kafkaProd *kafka.Producer
+	if cfg.KafkaEnabled {
+		prod, err := kafka.NewProducer(cfg.KafkaBrokers, cfg.KafkaTopic)
+		if err != nil {
+			slog.Warn("kafka producer failed to initialize; telemetry running in Redis-only mode", "error", err)
+		} else {
+			kafkaProd = prod
+			defer kafkaProd.Close()
+		}
 	} else {
-		defer kafkaProd.Close()
+		slog.Info("kafka publishing disabled by configuration (KAFKA_ENABLED=false)")
 	}
 
 	// 3. Location Ingestion Service

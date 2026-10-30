@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"net/http"
@@ -173,6 +174,7 @@ const (
 func main() {
 	gatewayURL := flag.String("gateway", "http://127.0.0.1:8080", "Gateway base URL")
 	dispatchURL := flag.String("dispatch", "http://127.0.0.1:8081", "Dispatch base URL")
+	cooldownSec := flag.Int("cooldown", 20, "Cooldown seconds between test phases")
 	outputFile := flag.String("output", "STRESS_TEST_RESULTS.md", "Output markdown file")
 	seed := flag.Int64("seed", 42, "Random seed")
 	flag.Parse()
@@ -182,10 +184,11 @@ func main() {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        5000,
-			MaxIdleConnsPerHost: 3000,
-			MaxConnsPerHost:     3000,
-			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConns:        20000,
+			MaxIdleConnsPerHost: 10000,
+			MaxConnsPerHost:     10000,
+			IdleConnTimeout:     120 * time.Second,
+			DisableKeepAlives:   false,
 		},
 	}
 
@@ -216,10 +219,10 @@ func main() {
 			ms.P50Us/1000, ms.P95Us/1000, ms.P99Us/1000, ms.MaxUs/1000,
 			result.TotalMatches, result.FailedMatches, result.MatchThroughput)
 
-		// Brief cooldown between phases
+		// Cooldown between phases (configurable 15-30s default)
 		if i < len(phases)-1 {
-			fmt.Print("       Cooldown 2s...")
-			time.Sleep(2 * time.Second)
+			fmt.Printf("       Cooldown %ds for connection pool recovery & socket recycling...", *cooldownSec)
+			time.Sleep(time.Duration(*cooldownSec) * time.Second)
 			fmt.Println(" OK")
 		}
 	}
@@ -304,14 +307,17 @@ func runPhase(phase TestPhase, gatewayURL, dispatchURL string, client *http.Clie
 						resp, err := client.Post(gatewayURL+"/ping", "application/json", bytes.NewReader(payload))
 						elapsedUs := float64(time.Since(start).Microseconds())
 
-						if err != nil || (resp != nil && resp.StatusCode >= 400) {
+						if err != nil {
 							atomic.AddInt64(&failedPings, 1)
 						} else {
-							atomic.AddInt64(&totalPings, 1)
-							pingLC.Record(elapsedUs)
-						}
-						if resp != nil {
+							_, _ = io.Copy(io.Discard, resp.Body)
 							resp.Body.Close()
+							if resp.StatusCode >= 400 {
+								atomic.AddInt64(&failedPings, 1)
+							} else {
+								atomic.AddInt64(&totalPings, 1)
+								pingLC.Record(elapsedUs)
+							}
 						}
 					}
 				}
@@ -365,14 +371,17 @@ func runPhase(phase TestPhase, gatewayURL, dispatchURL string, client *http.Clie
 						resp, err := client.Post(dispatchURL+"/match", "application/json", bytes.NewReader(payload))
 						elapsedUs := float64(time.Since(start).Microseconds())
 
-						if err != nil || (resp != nil && resp.StatusCode >= 500) {
+						if err != nil {
 							atomic.AddInt64(&failedMatches, 1)
 						} else {
-							atomic.AddInt64(&totalMatches, 1)
-							matchLC.Record(elapsedUs)
-						}
-						if resp != nil {
+							_, _ = io.Copy(io.Discard, resp.Body)
 							resp.Body.Close()
+							if resp.StatusCode >= 500 {
+								atomic.AddInt64(&failedMatches, 1)
+							} else {
+								atomic.AddInt64(&totalMatches, 1)
+								matchLC.Record(elapsedUs)
+							}
 						}
 					}
 				}
