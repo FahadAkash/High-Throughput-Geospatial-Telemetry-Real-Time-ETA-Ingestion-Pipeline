@@ -41,11 +41,12 @@ func main() {
 	defer stop()
 
 	// 1. Redis hot-path client
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisURL,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
+	redisOpts, err := cfg.RedisOptions()
+	if err != nil {
+		slog.Error("failed to parse redis options", "error", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(redisOpts)
 	defer rdb.Close()
 	redisClient := redisStore.NewClient(rdb)
 

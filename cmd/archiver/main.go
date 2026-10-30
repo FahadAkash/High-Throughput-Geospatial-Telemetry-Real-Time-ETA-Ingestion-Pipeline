@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// 3. Kafka consumer
-	consumer, err := kafka.NewConsumer(cfg.KafkaBrokers, "telemetry-archiver-group", cfg.KafkaTopic, batchHandler)
+	consumer, err := kafka.NewConsumer(cfg.KafkaBrokers, cfg.KafkaGroupID, cfg.KafkaTopic, batchHandler)
 	if err != nil {
 		slog.Error("failed to initialize kafka consumer", "error", err)
 		os.Exit(1)

@@ -1,11 +1,14 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // Config holds all environment-based configuration parameters.
@@ -19,6 +22,7 @@ type Config struct {
 	// Kafka / Redpanda
 	KafkaBrokers []string
 	KafkaTopic   string
+	KafkaGroupID string
 
 	// PostgreSQL
 	PostgresURL string
@@ -38,17 +42,49 @@ type Config struct {
 	ClaimTTL      time.Duration
 }
 
-// Load reads and parses all configuration from the environment with production defaults.
+// Load reads and parses all configuration from .env and the environment.
 func Load() (*Config, error) {
+	// Automatically load .env if present
+	loadDotEnv(".env")
+
+	redisURL := getEnv("REDIS_URL", "127.0.0.1:6379")
+	redisPass := getEnv("REDIS_PASSWORD", "")
+	redisDB := getEnvInt("REDIS_DB", 0)
+
+	// If REDIS_URL has redis:// scheme, parse it for default password & DB
+	if strings.HasPrefix(redisURL, "redis://") || strings.HasPrefix(redisURL, "rediss://") {
+		if opt, err := redis.ParseURL(redisURL); err == nil {
+			if redisPass == "" && opt.Password != "" {
+				redisPass = opt.Password
+			}
+			if redisDB == 0 && opt.DB != 0 {
+				redisDB = opt.DB
+			}
+		}
+	}
+
+	// Postgres URL fallback
+	pgURL := getEnv("POSTGRES_URL", "")
+	if pgURL == "" {
+		pgURL = getEnv("DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:5432/rides?sslmode=disable")
+	}
+
+	// Kafka Brokers fallback
+	kafkaBrokers := getEnvSlice("KAFKA_BROKERS", nil)
+	if len(kafkaBrokers) == 0 {
+		kafkaBrokers = getEnvSlice("KAFKA_BOOTSTRAP_SERVERS", []string{"127.0.0.1:9092"})
+	}
+
 	cfg := &Config{
-		RedisURL:      getEnv("REDIS_URL", "127.0.0.1:6379"),
-		RedisPassword: getEnv("REDIS_PASSWORD", ""),
-		RedisDB:       getEnvInt("REDIS_DB", 0),
+		RedisURL:      redisURL,
+		RedisPassword: redisPass,
+		RedisDB:       redisDB,
 
-		KafkaBrokers: getEnvSlice("KAFKA_BROKERS", []string{"127.0.0.1:9092"}),
+		KafkaBrokers: kafkaBrokers,
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "telemetry.dhaka"),
+		KafkaGroupID: getEnv("KAFKA_GROUP_ID", "telemetry-consumer-group"),
 
-		PostgresURL: getEnv("POSTGRES_URL", "postgres://postgres:postgres@127.0.0.1:5432/rides?sslmode=disable"),
+		PostgresURL: pgURL,
 		OSRMURL:     getEnv("OSRM_URL", "http://127.0.0.1:5000"),
 
 		GatewayPort:  getEnvInt("GATEWAY_PORT", 8080),
@@ -68,6 +104,26 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// RedisOptions returns parsed redis.Options supporting both redis:// URL schemes and raw host:port.
+func (c *Config) RedisOptions() (*redis.Options, error) {
+	if strings.HasPrefix(c.RedisURL, "redis://") || strings.HasPrefix(c.RedisURL, "rediss://") {
+		opts, err := redis.ParseURL(c.RedisURL)
+		if err != nil {
+			return nil, fmt.Errorf("parsing redis URL: %w", err)
+		}
+		if c.RedisPassword != "" {
+			opts.Password = c.RedisPassword
+		}
+		return opts, nil
+	}
+
+	return &redis.Options{
+		Addr:     c.RedisURL,
+		Password: c.RedisPassword,
+		DB:       c.RedisDB,
+	}, nil
+}
+
 func (c *Config) validate() error {
 	if c.RedisURL == "" {
 		return fmt.Errorf("REDIS_URL must not be empty")
@@ -82,6 +138,36 @@ func (c *Config) validate() error {
 		return fmt.Errorf("MAX_CANDIDATES must be positive")
 	}
 	return nil
+}
+
+func loadDotEnv(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			// Strip optional quotes
+			if (strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"")) ||
+				(strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'")) {
+				val = val[1 : len(val)-1]
+			}
+			// Only set if not already set in environment
+			if os.Getenv(key) == "" {
+				_ = os.Setenv(key, val)
+			}
+		}
+	}
 }
 
 func getEnv(key, defaultVal string) string {
