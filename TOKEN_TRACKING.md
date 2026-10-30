@@ -20,14 +20,15 @@ $$\text{Cost (USD)} = (\text{Input Tokens} \times 1.0 \times 10^{-7}) + (\text{C
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Phase 0: Planning & Repo Init** | 2026-10-30T04:58:00Z | 143,691 | 647,484 | 16,606 | 807,781 | \$0.03720 | \$0.03720 |
 | **Phase 1-5: Full Project Implementation & Verification** | 2026-10-30T05:17:00Z | 381,770 | 7,701,416 | 59,793 | 8,142,979 | \$0.25463 | \$0.29183 |
-| **Final Delivery & Remote Sync** | 2026-10-30T05:18:00Z | 24,843 | 1,100,364 | 2,544 | 1,127,751 | \$0.03101 | **\$0.32284** |
+| **Delivery & Remote Sync** | 2026-10-30T05:18:00Z | 24,843 | 1,100,364 | 2,544 | 1,127,751 | \$0.03101 | \$0.32284 |
+| **Post-Delivery Verification Turn** | 2026-10-30T05:23:00Z | 14,345 | 582,060 | 4,900 | 601,305 | \$0.01795 | **\$0.34079** |
 
-### Final Accounting Summary
-- **Total Standard Input Tokens**: `550,304` (\$0.05503)
-- **Total Context Cache Read Tokens**: `9,449,264` (\$0.23623)
-- **Total Output (CoT Reasoning + Generation) Tokens**: `78,943` (\$0.03158)
-- **Total Tokens Consumed**: **10,078,511 tokens**
-- **Total Compute Cost**: **\$0.32284 USD**
+### Live Accounting Summary
+- **Total Standard Input Tokens**: `564,649` (\$0.05646)
+- **Total Context Cache Read Tokens**: `10,031,324` (\$0.25078)
+- **Total Output (CoT Reasoning + Generation) Tokens**: `83,843` (\$0.03354)
+- **Total Tokens Consumed**: **10,679,816 tokens** (~10.68M tokens)
+- **Total Compute Cost**: **\$0.34079 USD**
 
 ---
 
