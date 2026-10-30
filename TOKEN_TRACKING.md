@@ -77,6 +77,5 @@ $$\text{Cost (USD)} = (\text{Input Tokens} \times 1.0 \times 10^{-7}) + (\text{C
 - [x] **Phase 8 (Comprehensive Stress & Performance Testing)**:
   - Built and ran 6-phase stress test suite: warmup, load_test, stress_test, spike_test, volume_test, soak_test.
   - Gateway and Dispatch services ran on localhost, backed by remote Redis/PostgreSQL/Kafka at `192.168.0.113`.
-  - **Key Results**: Load test achieved 396 pings/s at p99=69.87ms with 0% failure. Stress test reached 573 pings/s at p99=227ms (0% failure). Saturation cliff at ~5000 pings/s due to remote Redis network RTT.
-  - Full results with bottleneck analysis saved to `STRESS_TEST_RESULTS.md`.
-  - Identified root cause: remote Redis network latency (~2-5ms RTT) is the sole bottleneck. With co-located Redis, projections indicate 5,000-15,000 ops/s per node.
+  - **Key Empirical Results**: Load test achieved 396 pings/s at p99=69.87ms with 0% failure. Stress test reached 573 pings/s at p99=227ms (0% failure). Saturation occurred around 520–570 ops/s on loopback.
+  - **Empirical Diagnostics**: Benchmarked remote Redis alone, demonstrating **6,737 ops/s** at p99=38ms with 0 failures, proving Redis was not the bottleneck. Diagnosed post-spike 100% failure as Windows ephemeral port exhaustion (16,382 sockets in TIME_WAIT across ports 49152–65534). Added pprof endpoints to gateway. Full empirical analysis saved to `STRESS_TEST_RESULTS.md`.

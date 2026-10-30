@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -62,7 +63,7 @@ func main() {
 	locService := location.NewService(redisClient, kafkaProd, nil, cfg.StaleWindow)
 
 	// 4. HTTP Router
-	mux := http.NewServeMux()
+	mux := http.DefaultServeMux
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

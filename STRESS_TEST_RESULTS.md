@@ -295,48 +295,41 @@
 
 ---
 
-## Bottleneck Analysis & Root Cause
+## Bottleneck Analysis & Root Cause (Empirical Verification)
 
-### What happened at each phase
+### Empirical Findings: Redis vs Localhost Network Stack
 
-| Phase | Verdict | Key Observation |
-| :--- | :---: | :--- |
-| **warmup** | ✅ PASS | Connections priming. Higher initial latency (p99=164ms) is expected for first requests establishing TCP + Redis pipelines. |
-| **load_test** | ✅ PASS | **Optimal operating range**. p50=4.70ms, p99=69.87ms with 0% failure at 396 ops/s. Connections are warm, pipeline is flowing. |
-| **stress_test** | ✅ PASS | Achieved 573 ops/s (target 2000). p99 climbs to 227ms but 0% failures. System is throttled by network round-trips to remote Redis but still fully reliable. |
-| **spike_test** | ⚠️ DEGRADED | 55.5% ping failures. HTTP client 5s timeout reached for queued requests. The connection pool (3000 max) saturated against the remote Redis at ~520 ops/s ceiling. |
-| **volume_test** | ❌ FAILED | 100% failure. Connection pool was already exhausted from the spike phase. The preceding phase left the HTTP transport in a depleted state with no recovery window. |
-| **soak_test** | ❌ FAILED | 100% failure (4 pings leaked through). Same connection exhaustion carry-over. The 2s cooldown between phases was insufficient for pool recovery. |
+Direct benchmarking of Redis alone at `192.168.0.113:6379` directly from this host using the exact `update_location.lua` script disproves the initial hypothesis that Redis network RTT was the sole bottleneck:
 
-### Root Cause: Remote Redis Network Bottleneck
+| Concurrency | Achieved Throughput | p50 Latency | p95 Latency | p99 Latency | Failures |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **10** | **3,023 ops/s** | 2.65 ms | 5.69 ms | 8.01 ms | 0 (0.0%) |
+| **50** | **6,186 ops/s** | 7.59 ms | 15.38 ms | 20.47 ms | 0 (0.0%) |
+| **100** | **6,737 ops/s** | 11.39 ms | 24.23 ms | 38.01 ms | 0 (0.0%) |
+| **200** | **6,018 ops/s** | 28.79 ms | 121.88 ms | 272.45 ms | 0 (0.0%) |
 
-The **single bottleneck** is the network round-trip to Redis at `192.168.0.113` (remote LAN host, not localhost):
+**Measured Reality**: Remote Redis directly handles **6,737 ops/s** with sub-40ms p99 latency across the LAN link. Redis was **not** the primary constraint.
 
-- **Each ping** requires a Redis Lua EVALSHA + hash GET/SET (2 round-trips via pipeline).
-- At ~5ms per round-trip, a single connection supports ~200 ops/s.
-- With the default pool, the system plateau is **~500-600 pings/s** to remote Redis.
-- Above that threshold, the HTTP transport's connection queue fills and the 5s client timeout triggers.
+### Real Causes of System Saturation at 520–570 ops/s and Post-Spike Collapse
 
-**This is NOT a code bottleneck** — it's a deployment topology constraint:
+1. **Windows Ephemeral Port Exhaustion (100% Collapse in Volume & Soak)**:
+   - Windows allocates dynamic client ports in the range `49152`–`65534` (16,384 ports total).
+   - The default Windows `TcpTimedWaitDelay` is **120 seconds**.
+   - During the Spike phase (5,000 req/s), the test client exhausted all dynamic ports. `netstat -an` confirmed ports from `49152` up to `65534` were consecutively held in `TIME_WAIT` on `127.0.0.1:8080`.
+   - New connections for subsequent phases (Volume and Soak) failed immediately with socket exhaustion (`WSAEADDRINUSE`), giving false 100% application failures.
 
-| Factor | Current (Remote Redis) | Expected (Localhost Redis) |
-| :--- | :--- | :--- |
-| Ping RTT to Redis | ~2-5ms | ~0.1-0.3ms |
-| Max Ping throughput/node | ~500-600 ops/s | ~5,000-15,000 ops/s |
-| p99 at 500 ops/s | ~70-227ms | ~2-10ms |
-| Connection pool pressure | High (blocked on network I/O) | Low (sub-ms returns) |
+2. **HTTP/1.1 Loopback Handshake Overhead**:
+   - Running both load generator and gateway on the same loopback interface created high TCP handshake contention and socket churn under burst loads.
+   - For rigorous stress testing, load generation must run from an external client machine over long-lived keep-alive connections or WebSocket streaming.
 
-### Recommendations for Production
+3. **Kafka Producer Asynchronous Context Cascades**:
+   - Gateway logs during spike overload revealed numerous `asynchronous kafka publish failed: context canceled` entries when incoming request contexts expired before Kafka client buffer flushes.
 
-1. **Co-locate Redis** on the same host or same datacenter VLAN (< 1ms RTT) — expected 10-20x throughput improvement.
-2. **Redis connection pooling**: Increase `PoolSize` to `runtime.NumCPU() * 20` for high-throughput nodes.
-3. **Add recovery cooldown**: Between extreme phases, allow 10-15s for TCP connection pool drain and re-establishment.
-4. **Horizontal scaling**: The gateway is stateless — add nodes behind a load balancer. Each node independently pipelines to Redis.
-5. **Redis Cluster**: For > 50k ops/s, shard by H3 cell prefix across Redis Cluster nodes.
+### Key Takeaways (Corrected)
 
-### Key Takeaways
-
-> **The system is production-viable at ~400 ops/s per node over a LAN Redis connection with sub-70ms p99 latency and 0% failure rate.** The saturation point at ~570 ops/s is a network I/O bound, not a CPU or memory bound. With co-located Redis, projections indicate **5,000-15,000 ops/s per node** — more than sufficient for a Dhaka-scale ride-hailing service (~2,000 concurrent drivers at 1 ping/s per driver).
+- **Measured Pipeline Ceiling**: ~520–570 ops/s end-to-end on a single loopback node with short-lived HTTP connections before Windows socket exhaustion occurs.
+- **Measured Redis Hot-Path Capacity**: 6,737 ops/s directly tested against remote Redis on the LAN link.
+- **Projected Figures**: Any figure beyond the measured 6,737 ops/s is theoretical projection and unverified without distributed multi-node load testing.
 
 ---
 
